@@ -333,6 +333,7 @@ tr.done-row td{opacity:.4}
       <button class="filter-btn active" onclick="filterTx('all',this)">All</button>
       <button class="filter-btn" onclick="filterTx('income',this)">Income</button>
       <button class="filter-btn" onclick="filterTx('expense',this)">Expense</button>
+      <button class="filter-btn" onclick="filterTx('transfer',this)">Transfers</button>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-primary btn-sm" onclick="openTxModal('expense')">+ Expense</button>
@@ -461,6 +462,7 @@ tr.done-row td{opacity:.4}
         <div style="display:flex;gap:8px">
           <button class="btn btn-sm" id="type-exp-btn" onclick="setTxType('expense')" style="flex:1">💸 Expense</button>
           <button class="btn btn-sm" id="type-inc-btn" onclick="setTxType('income')" style="flex:1">💰 Income</button>
+          <button class="btn btn-sm" id="type-tfr-btn" onclick="setTxType('transfer')" style="flex:1">↔️ Transfer</button>
         </div>
       </div>
       <div class="inp-group">
@@ -471,11 +473,12 @@ tr.done-row td{opacity:.4}
         <label>Date</label>
         <input class="inp" type="date" id="tx-date">
       </div>
-      <div class="inp-group">
+      <!-- Income / Expense fields -->
+      <div id="tx-cat-wrap" class="inp-group">
         <label>Category</label>
         <select class="inp" id="tx-category"></select>
       </div>
-      <div class="inp-group">
+      <div id="tx-acc-wrap" class="inp-group">
         <label>Account</label>
         <select class="inp" id="tx-account">
           <option value="wallet">👛 Wallet (Cash)</option>
@@ -484,9 +487,28 @@ tr.done-row td{opacity:.4}
           <option value="hdfc">🏢 HDFC Current</option>
         </select>
       </div>
+      <!-- Transfer fields (hidden by default) -->
+      <div id="tx-from-wrap" class="inp-group" style="display:none">
+        <label>From Account</label>
+        <select class="inp" id="tx-from">
+          <option value="wallet">👛 Wallet (Cash)</option>
+          <option value="federal">🏦 Federal Bank</option>
+          <option value="sbi">🏦 SBI</option>
+          <option value="hdfc">🏢 HDFC Current</option>
+        </select>
+      </div>
+      <div id="tx-to-wrap" class="inp-group" style="display:none">
+        <label>To Account</label>
+        <select class="inp" id="tx-to">
+          <option value="wallet">👛 Wallet (Cash)</option>
+          <option value="federal">🏦 Federal Bank</option>
+          <option value="sbi">🏦 SBI</option>
+          <option value="hdfc">🏢 HDFC Current</option>
+        </select>
+      </div>
       <div class="inp-group modal-full">
         <label>Note (optional)</label>
-        <input class="inp" type="text" id="tx-note" placeholder="e.g. Electricity bill June">
+        <input class="inp" type="text" id="tx-note" placeholder="e.g. Withdrew cash from ATM">
       </div>
     </div>
     <input type="hidden" id="tx-edit-id" value="">
@@ -669,6 +691,7 @@ function thisMonthTotals(){
     const d = new Date(t.date+"T00:00:00");
     return d.getFullYear()===y && d.getMonth()===m && t.account!=="hdfc";
   });
+  // Exclude transfers from income/expense totals — they don't affect net worth
   const income   = personal.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0);
   const expenses = personal.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0);
   return {income, expenses};
@@ -800,18 +823,23 @@ function filterTx(f,btn){
 
 function txItemHTML(t){
   const isInc=t.type==="income";
-  const sign=isInc?"+":"-";
-  const cls=isInc?"inc":"exp";
-  const icon=isInc?"💰":"💸";
+  const isTfr=t.type==="transfer-in"||t.type==="transfer-out";
+  // Only show one entry per transfer pair (show transfer-out, skip transfer-in)
+  if(t.type==="transfer-in") return "";
+  const sign=isInc?"+":isTfr?"↔":"−";
+  const cls=isInc?"inc":isTfr?"tfr":"exp";
+  const icon=isInc?"💰":isTfr?"↔️":"💸";
+  const label=isTfr?(t.note||"Transfer"):catLabel(t.category,t.type);
+  const accInfo=isTfr?esc(t.note||"transfer"):esc(accLabel(t.account));
   return`<div class="tx-item">
-    <div class="tx-icon ${cls}">${icon}</div>
+    <div class="tx-icon ${cls}" style="${isTfr?"background:var(--purple-l)":""}">${icon}</div>
     <div class="tx-body">
-      <div class="tx-name">${esc(catLabel(t.category,t.type))}${t.note?` — <span style="color:var(--text3);font-weight:400">${esc(t.note)}</span>`:"" }</div>
-      <div class="tx-meta">${fmtDate(t.date)} · ${esc(accLabel(t.account))}</div>
+      <div class="tx-name">${esc(label)}</div>
+      <div class="tx-meta">${fmtDate(t.date)} · ${accInfo}</div>
     </div>
-    <div class="tx-amount ${cls}">${sign}${fmt(t.amount)}</div>
+    <div class="tx-amount" style="${isTfr?"color:var(--purple)":isInc?"color:var(--accent)":"color:var(--red)"}">${sign}${fmt(t.amount)}</div>
     <div class="tx-actions">
-      <button class="btn-icon" onclick="editTx(${t.id})" title="Edit">✏️</button>
+      ${isTfr?"":`<button class="btn-icon" onclick="editTx(${t.id})" title="Edit">✏️</button>`}
       <button class="btn-icon del" onclick="delTx(${t.id})" title="Delete">×</button>
     </div>
   </div>`;
@@ -822,7 +850,10 @@ function renderTx(){
     if(b.date!==a.date)return b.date.localeCompare(a.date);
     return b.id-a.id;
   });
-  if(txFilter!=="all") list=list.filter(t=>t.type===txFilter);
+  if(txFilter==="transfer") list=list.filter(t=>t.type==="transfer-out"||t.type==="transfer-in");
+  else if(txFilter!=="all") list=list.filter(t=>t.type===txFilter);
+  // Always hide transfer-in from display (shown as part of transfer-out entry)
+  if(txFilter!=="transfer") list=list.filter(t=>t.type!=="transfer-in");
   const el=document.getElementById("tx-list");
   const empty=document.getElementById("tx-empty");
   if(list.length===0){el.innerHTML="";empty.style.display="block";return;}
@@ -855,45 +886,77 @@ function openTxModal(type,editId){
   setTimeout(()=>document.getElementById("tx-amount").focus(),100);
 }
 function closeTxModal(){document.getElementById("tx-overlay").classList.remove("open");}
-function setTxType(t){
+function setTxType(t, skipCatReset){
   txType=t;
-  const expBtn=document.getElementById("type-exp-btn");
-  const incBtn=document.getElementById("type-inc-btn");
-  expBtn.className="btn btn-sm "+(t==="expense"?"btn-primary":"btn-ghost");
-  incBtn.className="btn btn-sm "+(t==="income"?"btn-primary":"btn-ghost");
-  // update categories
-  const cats=t==="income"?INC_CATS:EXP_CATS;
-  const sel=document.getElementById("tx-category");
-  sel.innerHTML=cats.map(c=>`<option value="${c.v}">${c.l}</option>`).join("");
+  const isTransfer = t==="transfer";
+  document.getElementById("type-exp-btn").className="btn btn-sm "+(t==="expense"?"btn-primary":"btn-ghost");
+  document.getElementById("type-inc-btn").className="btn btn-sm "+(t==="income"?"btn-primary":"btn-ghost");
+  document.getElementById("type-tfr-btn").className="btn btn-sm "+(t==="transfer"?"btn-primary":"btn-ghost");
+  // show/hide fields
+  document.getElementById("tx-cat-wrap").style.display  = isTransfer?"none":"";
+  document.getElementById("tx-acc-wrap").style.display  = isTransfer?"none":"";
+  document.getElementById("tx-from-wrap").style.display = isTransfer?"":"none";
+  document.getElementById("tx-to-wrap").style.display   = isTransfer?"":"none";
+  if(!isTransfer && !skipCatReset){
+    const cats=t==="income"?INC_CATS:EXP_CATS;
+    const sel=document.getElementById("tx-category");
+    sel.innerHTML=cats.map(c=>`<option value="${c.v}">${c.l}</option>`).join("");
+  }
 }
 function saveTx(){
   const amt=+document.getElementById("tx-amount").value;
   if(!amt){toast("Enter an amount");return;}
   const editId=+document.getElementById("tx-edit-id").value;
-  const tx={
-    id:editId||S.nextTxId++,
-    type:txType,
-    amount:amt,
-    date:document.getElementById("tx-date").value,
-    category:document.getElementById("tx-category").value,
-    account:document.getElementById("tx-account").value,
-    note:document.getElementById("tx-note").value.trim(),
-  };
-  if(editId){
-    const idx=S.transactions.findIndex(x=>x.id===editId);
-    if(idx>-1) S.transactions[idx]=tx;
+  const note=document.getElementById("tx-note").value.trim();
+  const date=document.getElementById("tx-date").value;
+
+  if(txType==="transfer"){
+    const from=document.getElementById("tx-from").value;
+    const to=document.getElementById("tx-to").value;
+    if(from===to){toast("From and To accounts must be different");return;}
+    // Store as two linked transactions — a debit and a credit
+    const tfrId = editId || S.nextTxId++;
+    // Remove old transfer pair if editing
+    if(editId) S.transactions=S.transactions.filter(x=>x.transferId!==editId);
+    S.transactions.push({
+      id:S.nextTxId++, transferId:tfrId, type:"transfer-out",
+      amount:amt, date, account:from,
+      note:note||(accLabel(from)+" → "+accLabel(to)),
+    });
+    S.transactions.push({
+      id:S.nextTxId++, transferId:tfrId, type:"transfer-in",
+      amount:amt, date, account:to,
+      note:note||(accLabel(from)+" → "+accLabel(to)),
+    });
   } else {
-    S.transactions.push(tx);
+    const tx={
+      id:editId||S.nextTxId++,
+      type:txType, amount:amt, date,
+      category:document.getElementById("tx-category").value,
+      account:document.getElementById("tx-account").value,
+      note,
+    };
+    if(editId){
+      const idx=S.transactions.findIndex(x=>x.id===editId);
+      if(idx>-1) S.transactions[idx]=tx;
+    } else {
+      S.transactions.push(tx);
+    }
   }
   closeTxModal();
   recalc();
-  toast(editId?"Transaction updated":"Transaction saved");
+  toast(editId?"Updated":"Saved ✓");
 }
 function editTx(id){openTxModal(null,id);}
 function delTx(id){
   const t=S.transactions.find(x=>x.id===id);
-  if(!t||!confirm(`Delete this transaction?`))return;
-  S.transactions=S.transactions.filter(x=>x.id!==id);
+  if(!t||!confirm("Delete this transaction?"))return;
+  if(t.transferId){
+    // Delete both sides of the transfer
+    S.transactions=S.transactions.filter(x=>x.transferId!==t.transferId);
+  } else {
+    S.transactions=S.transactions.filter(x=>x.id!==id);
+  }
   recalc();toast("Deleted");
 }
 
@@ -901,11 +964,14 @@ function delTx(id){
 // ACCOUNTS
 // ═══════════════════════════════════════════════════════
 function liveBalance(k){
-  // Live balance = opening balance + income transactions - expense transactions for that account
   const opening = S.accounts[k].balance || 0;
   const txTotal = S.transactions
     .filter(t=>t.account===k)
-    .reduce((s,t)=>t.type==="income" ? s+t.amount : s-t.amount, 0);
+    .reduce((s,t)=>{
+      if(t.type==="income"||t.type==="transfer-in")  return s+t.amount;
+      if(t.type==="expense"||t.type==="transfer-out") return s-t.amount;
+      return s;
+    }, 0);
   return opening + txTotal;
 }
 function renderAccounts(){
