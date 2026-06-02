@@ -505,7 +505,7 @@ tr.done-row td{opacity:.4}
       <button class="btn-icon" onclick="closeAccModal()">✕</button>
     </div>
     <div class="inp-group" style="margin-bottom:16px">
-      <label>Current Balance (₹)</label>
+      <label>Opening Balance (₹) — before transactions</label>
       <div class="inp-wrap"><span class="inp-pre">₹</span><input class="inp" type="number" id="acc-balance-inp"></div>
     </div>
     <input type="hidden" id="acc-edit-key">
@@ -697,8 +697,8 @@ function renderDash(){
   const guiltFree = Math.max(0, income - expenses - goalSav);
   const overcommitted = (income - expenses) < goalSav && income > 0;
   const shortfall = goalSav - (income - expenses);
-  const personalNet = Object.values(S.accounts)
-    .filter(a=>a.type==="personal").reduce((s,a)=>s+(a.balance||0),0);
+  const personalNet = Object.keys(S.accounts)
+    .filter(k=>S.accounts[k].type==="personal").reduce((s,k)=>s+liveBalance(k),0);
 
   const now=new Date();
   const dayNames=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -900,27 +900,41 @@ function delTx(id){
 // ═══════════════════════════════════════════════════════
 // ACCOUNTS
 // ═══════════════════════════════════════════════════════
+function liveBalance(k){
+  // Live balance = opening balance + income transactions - expense transactions for that account
+  const opening = S.accounts[k].balance || 0;
+  const txTotal = S.transactions
+    .filter(t=>t.account===k)
+    .reduce((s,t)=>t.type==="income" ? s+t.amount : s-t.amount, 0);
+  return opening + txTotal;
+}
 function renderAccounts(){
   const personal=document.getElementById("personal-accounts");
   const business=document.getElementById("business-accounts");
   personal.innerHTML=""; business.innerHTML="";
-  // Compute tx-based balances adjustment (transactions affect balance)
+  let personalNet=0;
   Object.entries(S.accounts).forEach(([k,a])=>{
+    const bal = liveBalance(k);
+    if(a.type==="personal") personalNet+=bal;
     const div=document.createElement("div");
     div.className="account-card"+(a.type==="business"?" business":"");
     div.innerHTML=`
       <div class="account-icon">${a.icon}</div>
       <div class="account-name">${esc(a.name)}</div>
-      <div class="account-balance">${fmt(a.balance)}</div>
-      <div class="account-type">${a.type==="business"?"Business":"Personal"}</div>
-      <button class="btn-icon account-edit" onclick="openAccModal('${k}')" title="Edit balance">✏️</button>`;
+      <div class="account-balance" style="${bal<0?"color:var(--red)":""}">${fmt(bal)}</div>
+      <div class="account-type">${a.type==="business"?"Business · HDFC separate":"Personal"}</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:3px">Opening: ${fmt(a.balance)} + transactions</div>
+      <button class="btn-icon account-edit" onclick="openAccModal('${k}')" title="Edit opening balance">✏️</button>`;
     (a.type==="business"?business:personal).appendChild(div);
   });
+  // Update net worth on dashboard
+  const netEl=document.getElementById("s-net");
+  if(netEl) netEl.textContent=fmt(personalNet);
 }
 function openAccModal(key){
   document.getElementById("acc-edit-key").value=key;
   document.getElementById("acc-balance-inp").value=S.accounts[key].balance||0;
-  document.getElementById("acc-modal-title").textContent="Edit — "+S.accounts[key].name;
+  document.getElementById("acc-modal-title").textContent="Edit opening balance — "+S.accounts[key].name;
   document.getElementById("acc-overlay").classList.add("open");
   setTimeout(()=>document.getElementById("acc-balance-inp").focus(),100);
 }
