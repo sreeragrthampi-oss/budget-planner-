@@ -306,6 +306,7 @@ tr.done-row td{opacity:.4}
     <div class="tbl-wrap">
       <table>
         <thead><tr>
+          <th style="width:52px"></th>
           <th>Goal</th><th style="text-align:right">Target</th>
           <th style="text-align:right">Saved</th><th>Priority</th>
           <th>Deadline</th><th style="text-align:right">Months</th>
@@ -313,6 +314,7 @@ tr.done-row td{opacity:.4}
         </tr></thead>
         <tbody id="goals-body"></tbody>
         <tfoot><tr class="tfoot-row">
+          <td></td>
           <td><strong>Total</strong></td><td id="g-total-amt" style="text-align:right"></td>
           <td id="g-total-saved" style="text-align:right"></td>
           <td colspan="3"></td>
@@ -782,6 +784,10 @@ function renderGoals(){
     const tr=document.createElement("tr");
     if(done)tr.className="done-row";
     tr.innerHTML=`
+      <td style="white-space:nowrap;padding:2px 4px">
+        <button class="btn-icon" onclick="gMove(${i},-1)" title="Move up" ${i===0?"disabled":""} style="font-size:13px;opacity:${i===0?0.25:1}">▲</button>
+        <button class="btn-icon" onclick="gMove(${i},1)" title="Move down" ${i===S.goals.length-1?"disabled":""} style="font-size:13px;opacity:${i===S.goals.length-1?0.25:1}">▼</button>
+      </td>
       <td><input class="td-inp" value="${esc(g.name)}" onchange="gUpd(${i},'name',this.value)" style="min-width:120px"></td>
       <td style="text-align:right"><input class="td-inp num" type="number" value="${g.amount}" onchange="gUpd(${i},'amount',+this.value)" style="width:80px"></td>
       <td style="text-align:right"><input class="td-inp num" type="number" value="${g.saved||0}" onchange="gUpd(${i},'saved',+this.value)" style="width:70px"></td>
@@ -804,6 +810,12 @@ function gUpd(i,k,v){S.goals[i][k]=v;recalc();}
 function gDel(i){
   if(!confirm(`Delete "${S.goals[i].name}"?`))return;
   S.goals.splice(i,1);recalc();toast("Goal deleted");
+}
+function gMove(i,dir){
+  const j=i+dir;
+  if(j<0||j>=S.goals.length)return;
+  [S.goals[i],S.goals[j]]=[S.goals[j],S.goals[i]];
+  recalc();
 }
 function addGoal(){
   S.goals.push({id:S.nextId++,name:"New Goal",amount:10000,saved:0,priority:"planned",deadline:"2027-01-01"});
@@ -1048,17 +1060,19 @@ function renderMonths(){
     const baseInc = txInc > 0 ? txInc : 20000;
     const inc=baseInc+(bonus?10000:0);
     const baseExp = 15000;
+    const guiltFreeAmt = Math.round(inc * 0.20);
     const rawNet = inc - baseExp - sipTotal;
-    const net = Math.max(0, rawNet);
+    const netAfterGoals = Math.max(0, rawNet);
     const over = rawNet < 0;
     const ncls = over ? "mn-neg" : "mn-pos";
-    const netLabel = over ? "⚠️ Short by "+fmt(-rawNet) : fmt(net);
+    const netLabel = over ? "⚠️ Short by "+fmt(-rawNet) : fmt(netAfterGoals);
     div.querySelector(".month-body").innerHTML=`
       <div class="month-row"><span>Income (est.)</span><strong>${fmt(inc)}</strong></div>
       <div class="month-row"><span>Expenses (est.)</span><strong style="color:var(--red)">${fmt(baseExp)}</strong></div>
       <div class="month-row"><span>Goal savings</span><strong style="color:var(--amber)">${fmt(sipTotal)}</strong></div>
       <div class="month-div"></div>
-      <div class="month-net ${ncls}"><span>Guilt-free</span><strong>${netLabel}</strong></div>`;
+      <div class="month-net mn-pos"><span>Guilt-free (20%)</span><strong>${fmt(guiltFreeAmt)}</strong></div>
+      ${over?'<div class="month-net mn-neg" style="margin-top:4px;font-size:12px"><span>Goals vs leftover</span><strong>⚠️ Short by '+fmt(-rawNet)+'</strong></div>':''}`;
   });
 }
 
